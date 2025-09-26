@@ -36,3 +36,10 @@ uv run facefinder query <image> <index_folder> <output_folder> [--topk <number>]
 
 💡 You can use one of the generated thumbnails as query.
 
+## Limitations and possible improvements
+- It has the whole Internet as dependency…
+- The indexing is slow as hell.
+- The result template is hugly.
+- It is not possible to index files incrementally: you cannot interrupt the indexing and continue later, you cannot add files to an already- computed index.
+- The result list is not filtered by confidence, so first results should be OK, but the rest may not.
+- Retreival quality may be improved.

@@ -1,2 +1,4 @@
-def main() -> None:
-    print("Hello from facefinder!")
+from .cli import main
+
+if __name__ == "__main__":
+    main()

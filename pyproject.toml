@@ -1,0 +1,17 @@
+[project]
+name = "facefinder"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Joseph Chazalon", email = "joseph.chazalon@gmail.com" }
+]
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+facefinder = "facefinder:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

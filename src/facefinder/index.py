@@ -130,11 +130,12 @@ def build_index(input_folder, output_folder):
 
     # Reopen the medatada file to check for existing IDs
     metadata = []
-    with open(metadata_file, encoding="utf8") as f:
-        try:
-            metadata = json.load(f)
-        except Exception:
-            metadata = []
+    if os.path.exists(metadata_file):
+        with open(metadata_file, encoding="utf8") as f:
+            try:
+                metadata = json.load(f)
+            except Exception:
+                metadata = []
     
     # Check embeddings and metadata consistency
     print(f"Loaded {len(metadata)} existing metadata entries.")

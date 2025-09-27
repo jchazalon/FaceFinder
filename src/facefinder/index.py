@@ -119,7 +119,7 @@ def build_index(input_folder, output_folder):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = InceptionResnetV1(pretrained='vggface2').eval().to(device)
 
-    ensure_dir(output_folder)
+    # ensure_dir(output_folder)
 
     embeddings = []
     # Load existing embedding_file and metadata if they exist
@@ -163,7 +163,7 @@ def build_index(input_folder, output_folder):
     print(f"Already indexed {len(existing_files)} images, skipping them.")
     
     # Open log file and write the timestamp
-    with open(log_file, "a", encoding="utf8") as logf:
+    with open(log_file, "a", encoding="utf8", buffering=1) as logf:
 
         logf.write("="*50 + "\n")
         logf.write(f"\nIndexing run at {datetime.now().isoformat()}\n")

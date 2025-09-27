@@ -1,5 +1,7 @@
 import os
 import json
+from datetime import datetime
+# import hashlib
 from jinja2 import Environment, FileSystemLoader
 import numpy as np
 from PIL import Image
@@ -8,7 +10,6 @@ from facenet_pytorch import InceptionResnetV1
 import torch
 import faiss
 from tqdm import tqdm
-import hashlib
 
 
 # ----------------------------
@@ -109,6 +110,7 @@ def build_index(input_folder, output_folder):
     embedding_file = os.path.join(output_folder, "embeddings.npy")
     metadata_file = os.path.join(output_folder, "metadata.json")
     thumbnails_dir = os.path.join(output_folder, "thumbnails")
+    log_file = os.path.join(output_folder, "indexing.log")
     ensure_dir(thumbnails_dir)
 
     input_folder = os.path.abspath(input_folder)
@@ -157,75 +159,97 @@ def build_index(input_folder, output_folder):
     print(f"Found {len(image_files)} new images to process.")
     id_counter = len(metadata)
 
-    all_files = [item['file'] for item in metadata]
-    print(f"Already indexed {len(all_files)} images, skipping them.")
+    existing_files = [item['file'] for item in metadata]
+    print(f"Already indexed {len(existing_files)} images, skipping them.")
+    
+    # Open log file and write the timestamp
+    with open(log_file, "a", encoding="utf8") as logf:
 
-    # Final list of files which will be indexed
-    all_files.extend(image_files)
+        logf.write("="*50 + "\n")
+        logf.write(f"\nIndexing run at {datetime.now().isoformat()}\n")
+        logf.write(f"Input folder: {input_folder}\n")
+        logf.write(f"Output folder: {output_folder}\n")
+        logf.write(f"Existing indexed files: {len(existing_files)}\n")
+        logf.write(f"New files to process: {len(image_files)}\n")
+        # List files already indexed
+        logf.write("Already indexed files:\n")
+        for ef in existing_files:
+            logf.write(f"  - {ef}\n")
+        logf.write("\n")
+        logf.write("Starting indexing of new files.\n")
 
 
-    # id_counter = 0
-    for image_path in tqdm(image_files, desc="Indexing images"):
-        try:
-            image = Image.open(image_path).convert("RGB")
-        except Exception as e:
-            print(f"[WARN] Could not open image {image_path}: {e}")
-            continue
-
-        # # Generate a unique ID based on the image path
-        # id_hash = hashlib.md5(image_path.encode('utf-8')).hexdigest()
-        # # Append something depending on the filename to avoid collisions
-        # clean_basename = os.path.basename(image_path).replace(' ', '_').replace('.', '_').replace('-', '_')[:10]
-        # id_hash += f"_{clean_basename}"
-
-        try:
-            faces = detect_faces(image, detector)
-            if not faces:
+        # id_counter = 0
+        for image_path in tqdm(image_files, desc="Indexing images"):
+            logf.write(f"Processing {image_path}\n")
+            try:
+                image = Image.open(image_path).convert("RGB")
+            except Exception as e:
+                print(f"[WARN] Could not open image {image_path}: {e}")
+                logf.write(f"  [ERROR] Could not open image: {e}\n")
                 continue
 
-            face_embeddings = embed_faces(image, faces, model, device)
+            # # Generate a unique ID based on the image path
+            # id_hash = hashlib.md5(image_path.encode('utf-8')).hexdigest()
+            # # Append something depending on the filename to avoid collisions
+            # clean_basename = os.path.basename(image_path).replace(' ', '_').replace('.', '_').replace('-', '_')[:10]
+            # id_hash += f"_{clean_basename}"
 
-            for region, emb in zip(faces, face_embeddings):
-                tid = f"{id_counter:08d}.jpg"
-                thumb_path = os.path.join(thumbnails_dir, tid)
-                save_thumbnail(image, region, thumb_path)
+            try:
+                faces = detect_faces(image, detector)
+                logf.write(f"  Detected {len(faces)} faces.\n")
+                if not faces:
+                    continue
 
-                embeddings.append(emb)
-                metadata.append({
-                    "id": id_counter,
-                    "file": image_path.replace('\\', '/'),
-                    "region": region,
-                    "thumbnail": thumb_path.replace('\\', '/')
-                })
-                id_counter += 1
-        except Exception as e:
-            print(f"[WARN] Could not process {image_path}: {e}")
-        
-        # Periodically save progress
-        if len(embeddings) % 50 == 0:
-            np.save(embedding_file, np.array(embeddings).astype("float32"))
-            with open(metadata_file, "w", encoding="utf8") as f:
-                json.dump(metadata, f, indent=2)
-            print(f"Saved progress: {len(embeddings)} embeddings.")
+                face_embeddings = embed_faces(image, faces, model, device)
 
-    if not embeddings:
-        print("⚠️ No faces found in folder.")
-        return
+                for region, emb in zip(faces, face_embeddings):
+                    tid = f"{id_counter:08d}.jpg"
+                    thumb_path = os.path.join(thumbnails_dir, tid)
+                    save_thumbnail(image, region, thumb_path)
 
-    embeddings = np.array(embeddings).astype("float32")
-    np.save(embedding_file, embeddings)
+                    embeddings.append(emb)
+                    metadata.append({
+                        "id": id_counter,
+                        "file": image_path.replace('\\', '/'),
+                        "region": region,
+                        "thumbnail": thumb_path.replace('\\', '/')
+                    })
+                    id_counter += 1
+            except Exception as e:
+                print(f"[WARN] Could not process {image_path}: {e}")
+                logf.write(f"  [ERROR] Could not process image: {e}\n")
+            
+            # Periodically save progress
+            if len(embeddings) % 50 == 0:
+                np.save(embedding_file, np.array(embeddings).astype("float32"))
+                with open(metadata_file, "w", encoding="utf8") as f:
+                    json.dump(metadata, f, indent=2)
+                print(f"Saved progress: {len(embeddings)} embeddings.")
+                logf.write(f"  Saved {len(embeddings)} embeddings.\n")
+
+        if not embeddings:
+            print("⚠️ No faces found in folder.")
+            return
+
+        embeddings = np.array(embeddings).astype("float32")
+        np.save(embedding_file, embeddings)
 
 
-    dim = embeddings.shape[1]
-    index = faiss.IndexFlatL2(dim)
-    # pylint: disable=E1120
-    index.add(embeddings)
+        logf.write(f"Finished indexing. Total embeddings: {len(embeddings)}\n")
+        logf.write(f"Regenerating FAISS index at {index_file}\n")
+        dim = embeddings.shape[1]
+        index = faiss.IndexFlatL2(dim)
+        # pylint: disable=E1120
+        index.add(embeddings)
 
-    faiss.write_index(index, index_file)
-    with open(metadata_file, "w", encoding="utf8") as f:
-        json.dump(metadata, f, indent=2)
+        faiss.write_index(index, index_file)
+        with open(metadata_file, "w", encoding="utf8") as f:
+            json.dump(metadata, f, indent=2)
 
-    print(f"✅ Indexed {len(embeddings)} faces. Index saved to {index_file}, metadata to {metadata_file}.")
+        print(f"✅ Indexed {len(embeddings)} faces. Index saved to {index_file}, metadata to {metadata_file}.")
+        logf.write(f"FAISS index saved to {index_file}\n")
+        logf.write(f"Metadata saved to {metadata_file}\n")
 
     # Also generate a full HTML preview (paged)
     # try:

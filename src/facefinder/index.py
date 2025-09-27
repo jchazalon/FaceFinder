@@ -152,12 +152,12 @@ def build_index(input_folder, output_folder):
                 image_files.append(os.path.join(root, file))
 
     # Filter files which already exist in metadata
-    existing_files = {item['file'] for item in metadata}
+    existing_files = [item['file'] for item in metadata}]
     image_files = [f for f in image_files if f.replace('\\', '/') not in existing_files]
     print(f"Found {len(image_files)} new images to process.")
     id_counter = len(metadata)
 
-    all_files = {item['file'] for item in metadata}
+    all_files = [item['file'] for item in metadata]
     print(f"Already indexed {len(all_files)} images, skipping them.")
 
     # Final list of files which will be indexed

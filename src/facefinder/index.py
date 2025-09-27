@@ -8,6 +8,7 @@ from facenet_pytorch import InceptionResnetV1
 import torch
 import faiss
 from tqdm import tqdm
+import hashlib
 
 
 # ----------------------------
@@ -105,6 +106,7 @@ def generate_html_preview(metadata, result_indices, thumbnails_dir, output_html,
 
 def build_index(input_folder, output_folder):
     index_file = os.path.join(output_folder, "faces.index")
+    embedding_file = os.path.join(output_folder, "embeddings.npy")
     metadata_file = os.path.join(output_folder, "metadata.json")
     thumbnails_dir = os.path.join(output_folder, "thumbnails")
     ensure_dir(thumbnails_dir)
@@ -118,7 +120,28 @@ def build_index(input_folder, output_folder):
     ensure_dir(output_folder)
 
     embeddings = []
+    # Load existing embedding_file and metadata if they exist
+    if os.path.exists(embedding_file):
+        embeddings = np.load(embedding_file).tolist()
+        print(f"Loaded {len(embeddings)} existing embeddings.")
+    else:
+        embeddings = []
+
+
+    # Reopen the medatada file to check for existing IDs
     metadata = []
+    with open(metadata_file, encoding="utf8") as f:
+        try:
+            metadata = json.load(f)
+        except Exception:
+            metadata = []
+    
+    # Check embeddings and metadata consistency
+    print(f"Loaded {len(metadata)} existing metadata entries.")
+    if len(embeddings) != len(metadata):
+        print("⚠️ Warning: Embeddings and metadata count mismatch. Rebuilding index from scratch.")
+        embeddings = []
+        metadata = []
 
     # Recursively find files in input_folder and collect absolute paths
     image_files = []
@@ -127,9 +150,32 @@ def build_index(input_folder, output_folder):
             if file.lower().endswith((".jpg", ".jpeg", ".png")):
                 image_files.append(os.path.join(root, file))
 
-    id_counter = 0
+    # Filter files which already exist in metadata
+    existing_files = {item['file'] for item in metadata}
+    image_files = [f for f in image_files if f.replace('\\', '/') not in existing_files]
+    print(f"Found {len(image_files)} new images to process.")
+    id_counter = len(metadata)
+
+    all_files = {item['file'] for item in metadata}
+    print(f"Already indexed {len(all_files)} images, skipping them.")
+
+    # Final list of files which will be indexed
+    all_files.extend(image_files)
+
+
+    # id_counter = 0
     for image_path in tqdm(image_files, desc="Indexing images"):
-        image = Image.open(image_path).convert("RGB")
+        try:
+            image = Image.open(image_path).convert("RGB")
+        except Exception as e:
+            print(f"[WARN] Could not open image {image_path}: {e}")
+            continue
+
+        # # Generate a unique ID based on the image path
+        # id_hash = hashlib.md5(image_path.encode('utf-8')).hexdigest()
+        # # Append something depending on the filename to avoid collisions
+        # clean_basename = os.path.basename(image_path).replace(' ', '_').replace('.', '_').replace('-', '_')[:10]
+        # id_hash += f"_{clean_basename}"
 
         try:
             faces = detect_faces(image, detector)
@@ -153,12 +199,22 @@ def build_index(input_folder, output_folder):
                 id_counter += 1
         except Exception as e:
             print(f"[WARN] Could not process {image_path}: {e}")
+        
+        # Periodically save progress
+        if len(embeddings) % 50 == 0:
+            np.save(embedding_file, np.array(embeddings).astype("float32"))
+            with open(metadata_file, "w", encoding="utf8") as f:
+                json.dump(metadata, f, indent=2)
+            print(f"Saved progress: {len(embeddings)} embeddings.")
 
     if not embeddings:
         print("⚠️ No faces found in folder.")
         return
 
     embeddings = np.array(embeddings).astype("float32")
+    np.save(embedding_file, embeddings)
+
+
     dim = embeddings.shape[1]
     index = faiss.IndexFlatL2(dim)
     # pylint: disable=E1120
